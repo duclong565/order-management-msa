@@ -17,6 +17,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "return_requests")
@@ -59,9 +60,9 @@ public class ReturnRequest extends BaseEntity {
     @Column(name = "tracking_number", unique = true, length = 50)
     private String trackingNumber;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "warehouse_id")
-    private Warehouse warehouse;
+    // warehouse thuộc product-service - chỉ lưu ID, lấy chi tiết qua ProductClient
+    @Column(name = "warehouse_id")
+    private UUID warehouseId;
 
     @Column(name = "received_at")
     private Instant receivedAt;

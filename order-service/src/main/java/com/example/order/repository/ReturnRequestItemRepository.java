@@ -13,12 +13,10 @@ public interface ReturnRequestItemRepository extends JpaRepository<ReturnRequest
         select rri
         from ReturnRequestItem rri
         join fetch rri.orderItem oi
-        join fetch oi.productVariant pv
-        join fetch pv.product
         where rri.returnRequest.id = :returnRequestId
           and rri.deleted = false
         """)
-    List<ReturnRequestItem> findByReturnRequestIdWithVariant(@Param("returnRequestId") UUID returnRequestId);
+    List<ReturnRequestItem> findByReturnRequestId(@Param("returnRequestId") UUID returnRequestId);
 
     @Query("""
         select coalesce(sum(rri.quantity), 0)

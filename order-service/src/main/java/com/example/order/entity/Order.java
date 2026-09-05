@@ -16,6 +16,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "orders")
@@ -33,9 +34,9 @@ public class Order extends BaseEntity {
     @Enumerated(EnumType.STRING) //annotation cho JPA lưu kiểu dữ liệu enum dạng string không phải int, default là ordinal (0,1,2,...)
     private OrderStatus status = OrderStatus.PENDING; //lưu "pending"
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "discount_id")
-    private Discount discount;
+    // discount thuộc product-service - chỉ lưu ID, lấy chi tiết qua ProductClient
+    @Column(name = "discount_id")
+    private UUID discountId;
 
     @Column(name = "discount_value", precision = 12, scale = 2) //số có tối đa 12 chữ số, 2 chữ số sau dấu phẩy
     private BigDecimal discountValue;

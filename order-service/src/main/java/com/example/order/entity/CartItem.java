@@ -10,6 +10,8 @@ import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.UUID;
+
 @Entity
 @Table(
         name = "cart_items",
@@ -26,9 +28,9 @@ public class CartItem extends BaseEntity {
     @JoinColumn(name = "cart_id", nullable = false)
     private Cart cart;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "product_variant_id", nullable = false)
-    private ProductVariant productVariant;
+    // productVariant thuộc product-service - chỉ lưu ID, lấy chi tiết qua ProductClient
+    @Column(name = "product_variant_id", nullable = false)
+    private UUID productVariantId;
 
     @Column(nullable = false)
     private int quantity;

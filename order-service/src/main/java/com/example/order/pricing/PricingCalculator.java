@@ -1,8 +1,7 @@
 package com.example.order.pricing;
 
+import com.example.order.client.DiscountResponse;
 import com.example.order.common.StockStatus;
-import com.example.order.entity.CartItem;
-import com.example.order.entity.Discount;
 import com.example.order.common.ErrorCode;
 import com.example.order.exception.ApplicationException;
 import lombok.Getter;
@@ -12,7 +11,6 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
-import java.util.List;
 
 @Getter
 @Component
@@ -28,7 +26,7 @@ public class PricingCalculator {
     }
 
 
-    public void validateDiscountActive(Discount discount) {
+    public void validateDiscountActive(DiscountResponse discount) {
         Instant now = Instant.now();
 
         if (discount.getStartDate() != null && now.isBefore(discount.getStartDate())) {
@@ -53,15 +51,7 @@ public class PricingCalculator {
         return StockStatus.IN_STOCK;
     }
 
-    public BigDecimal calculateSubtotal(List<CartItem> cartItems) {
-        return cartItems.stream()
-                .map(i -> i.getProductVariant().getPrice()
-                        .multiply(BigDecimal.valueOf(i.getQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-    }
-
-    public BigDecimal calculateDiscountAmount(Discount discount, BigDecimal subtotal) {
+    public BigDecimal calculateDiscountAmount(DiscountResponse discount, BigDecimal subtotal) {
         if (discount == null) {
             return BigDecimal.ZERO;
         }

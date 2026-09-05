@@ -1,5 +1,8 @@
 package com.example.order.service;
 
+import com.example.order.client.DiscountResponse;
+import com.example.order.client.ProductClient;
+import com.example.order.client.ProductVariantResponse;
 import com.example.order.dto.*;
 import com.example.order.entity.*;
 import com.example.order.common.OrderStatus;
@@ -16,8 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -26,40 +31,49 @@ import java.util.stream.Stream;
 public class OrderService {
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
-    private final InventoryRepository inventoryRepository;
+    private final ProductClient productClient;
     private final AddressRepository addressRepository;
     private final PaymentMethodRepository paymentMethodRepository;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final PricingCalculator  pricingCalculator;
     private final TrackingLogRepository trackingLogRepository;
-    private final DiscountRepository discountRepository;
     private final CurrentUserProvider currentUserProvider;
+
+    // gom hết productVariantId cần thiết, gọi product-service đúng 1 lần,
+    // dựng Map để tra cứu O(1) - không gọi ProductClient bên trong vòng lặp.
+    private Map<UUID, ProductVariantResponse> fetchVariantsByCartItems(List<CartItem> items) {
+        List<UUID> variantIds = items.stream().map(CartItem::getProductVariantId).distinct().toList();
+        return productClient.getVariantsByIds(variantIds).stream()
+                .collect(Collectors.toMap(ProductVariantResponse::getVariantId, Function.identity()));
+    }
+
+    private Map<UUID, ProductVariantResponse> fetchVariantsByOrderItems(List<OrderItem> items) {
+        List<UUID> variantIds = items.stream().map(OrderItem::getProductVariantId).distinct().toList();
+        return productClient.getVariantsByIds(variantIds).stream()
+                .collect(Collectors.toMap(ProductVariantResponse::getVariantId, Function.identity()));
+    }
 
     private void decreaseStock(List<CartItem> items) {
         for (CartItem item : items) {
-            ProductVariant variant = item.getProductVariant();
-            int updated = inventoryRepository.decreaseStock(variant.getId(), item.getQuantity());
-
-            if (updated == 0) {
-                throw new ApplicationException(ErrorCode.INSUFFICIENT_STOCK,
-                        "Insufficient stock for variant: " + variant.getName());
-            }
+            productClient.decreaseStock(item.getProductVariantId(), item.getQuantity());
         }
     }
 
-    private OrderItem toOrderItem(Order order, CartItem cartItem) {
+    private OrderItem toOrderItem(Order order, CartItem cartItem, Map<UUID, ProductVariantResponse> variants) {
         OrderItem orderItem = new OrderItem();
         orderItem.setOrder(order);
-        orderItem.setProductVariant(cartItem.getProductVariant());
+        orderItem.setProductVariantId(cartItem.getProductVariantId());
         orderItem.setQuantity(cartItem.getQuantity());
-        orderItem.setUnitPrice(cartItem.getProductVariant().getPrice());
+        orderItem.setUnitPrice(variants.get(cartItem.getProductVariantId()).getPrice());
         return orderItem;
     }
 
     private OrderResponse toResponse(Order order,
                                      List<OrderItem> orderItems,
                                      List<TrackingLog> trackingLogs) {
+        Map<UUID, ProductVariantResponse> variants = fetchVariantsByOrderItems(orderItems);
+
         OrderResponse response = new OrderResponse();
 
         response.setOrderId(order.getId());
@@ -67,10 +81,10 @@ public class OrderService {
         response.setTrackingNumber(order.getTrackingNumber());
         response.setStatus(order.getStatus());
         response.setPaymentStatus(order.getPaymentStatus());
-        response.setItems(orderItems.stream().map(this::toItemResponse).toList());
+        response.setItems(orderItems.stream().map(item -> toItemResponse(item, variants)).toList());
 
         response.setSubtotalPrice(order.getSubtotalPrice());
-        response.setDiscountId(order.getDiscount() != null ? order.getDiscount().getId() : null);
+        response.setDiscountId(order.getDiscountId());
         response.setDiscountValue(order.getDiscountValue());
         response.setShippingFee(order.getShippingFee());
         response.setTotalPrice(order.getTotalPrice());
@@ -94,19 +108,18 @@ public class OrderService {
         return response;
     }
 
-    private OrderItemResponse toItemResponse(OrderItem orderItem) {
-        ProductVariant productVariant = orderItem.getProductVariant();
-        Product product = productVariant.getProduct();
+    private OrderItemResponse toItemResponse(OrderItem orderItem, Map<UUID, ProductVariantResponse> variants) {
+        ProductVariantResponse variant = variants.get(orderItem.getProductVariantId());
         BigDecimal lineTotal = orderItem.getUnitPrice()
                 .multiply(BigDecimal.valueOf(orderItem.getQuantity()));
 
         return new OrderItemResponse(
                 orderItem.getId(),
-                productVariant.getId(),
-                product.getName(),
-                productVariant.getName(),
-                productVariant.getSku(),
-                product.getImageUrl(),
+                orderItem.getProductVariantId(),
+                variant != null ? variant.getProductName() : null,
+                variant != null ? variant.getVariantName() : null,
+                variant != null ? variant.getSku() : null,
+                variant != null ? variant.getImageUrl() : null,
                 orderItem.getUnitPrice(),
                 orderItem.getQuantity(),
                 lineTotal
@@ -170,7 +183,7 @@ public class OrderService {
         Cart cart = cartRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.CART_NOT_FOUND));
 
-        List<CartItem> items = cartItemRepository.findByCartIdWithVariant(cart.getId());
+        List<CartItem> items = cartItemRepository.findByCartId(cart.getId());
         if (items.isEmpty()) {
             throw new ApplicationException(ErrorCode.CART_EMPTY);
         }
@@ -183,15 +196,15 @@ public class OrderService {
 
         decreaseStock(items);
 
+        Map<UUID, ProductVariantResponse> variants = fetchVariantsByCartItems(items);
         BigDecimal subtotal = items.stream()
-                .map(item -> item.getProductVariant().getPrice()
+                .map(item -> variants.get(item.getProductVariantId()).getPrice()
                         .multiply(BigDecimal.valueOf(item.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        Discount discount = null;
+        DiscountResponse discount = null;
         if (request.getDiscountId() != null) {
-            discount = discountRepository.findById(request.getDiscountId())
-                    .orElseThrow(() -> new ApplicationException(ErrorCode.DISCOUNT_NOT_FOUND));
+            discount = productClient.getDiscountById(request.getDiscountId());
             pricingCalculator.validateDiscountActive(discount);
         }
 
@@ -204,7 +217,7 @@ public class OrderService {
         order.setUser(cart.getUser());
         order.setStatus(OrderStatus.PENDING);
         order.setPaymentStatus(PaymentStatus.UNPAID);
-        order.setDiscount(discount);
+        order.setDiscountId(discount != null ? discount.getId() : null);
         order.setDiscountValue(discountAmount);
         order.setSubtotalPrice(subtotal);
         order.setShippingFee(shippingFee);
@@ -215,12 +228,12 @@ public class OrderService {
         Order savedOrder = orderRepository.save(order);
 
         List<OrderItem> orderItems = items.stream()
-                .map(item -> toOrderItem(savedOrder, item))
+                .map(item -> toOrderItem(savedOrder, item, variants))
                 .toList();
         orderItemRepository.saveAll(orderItems);
 
         cartItemRepository.deleteAll(items);
-        cart.setDiscount(null);
+        cart.setDiscountId(null);
         cartRepository.save(cart);
 
         TrackingLog placedLog = new TrackingLog();
@@ -259,7 +272,7 @@ public class OrderService {
                 : orderRepository.findDetailByIdAndUserId(orderId, currentUser.getId()))
                 .orElseThrow(() -> new ApplicationException(ErrorCode.ORDER_NOT_FOUND));
 
-        List<OrderItem> items = orderItemRepository.findByOrderIdWithVariant(orderId);
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
         List<TrackingLog> trackingLogs = trackingLogRepository.findByOrderIdWithUser(orderId);
 
         return toResponse(order, items, trackingLogs);
@@ -293,7 +306,7 @@ public class OrderService {
         log.setNote(request.getNote());
         trackingLogRepository.save(log);
 
-        List<OrderItem> items = orderItemRepository.findByOrderIdWithVariant(orderId);
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
         List<TrackingLog> trackingLogs = trackingLogRepository.findByOrderIdWithUser(orderId);
         return toResponse(order, items, trackingLogs);
     }

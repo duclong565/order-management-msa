@@ -1,5 +1,8 @@
 package com.example.order.service;
 
+import com.example.order.client.ProductClient;
+import com.example.order.client.ProductVariantResponse;
+import com.example.order.client.WarehouseResponse;
 import com.example.order.common.ErrorCode;
 import com.example.order.common.OrderStatus;
 import com.example.order.common.ReturnOriginType;
@@ -13,17 +16,14 @@ import com.example.order.dto.ReturnListItemResponse;
 import com.example.order.dto.ReturnSummaryResponse;
 import com.example.order.entity.Order;
 import com.example.order.entity.OrderItem;
-import com.example.order.entity.ProductVariant;
 import com.example.order.entity.ReturnRequest;
 import com.example.order.entity.ReturnRequestItem;
-import com.example.order.entity.Warehouse;
 import com.example.order.exception.ApplicationException;
 import com.example.order.repository.OrderItemRepository;
 import com.example.order.repository.OrderRepository;
 import com.example.order.repository.ReturnRequestItemRepository;
 import com.example.order.repository.ReturnRequestRepository;
 import com.example.order.repository.ReturnSummaryProjection;
-import com.example.order.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -60,7 +61,7 @@ public class ReturnService {
 
     private final ReturnRequestRepository returnRequestRepository;
     private final ReturnRequestItemRepository returnRequestItemRepository;
-    private final WarehouseRepository warehouseRepository;
+    private final ProductClient productClient;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
 
@@ -91,9 +92,8 @@ public class ReturnService {
         }
 
         if (request != null && request.getWarehouseId() != null) {
-            Warehouse warehouse = warehouseRepository.findById(request.getWarehouseId())
-                    .orElseThrow(() -> new ApplicationException(ErrorCode.INVALID_REQUEST, "Warehouse not found"));
-            returnRequest.setWarehouse(warehouse);
+            WarehouseResponse warehouse = productClient.getWarehouseById(request.getWarehouseId());
+            returnRequest.setWarehouseId(warehouse.getId());
         }
 
         returnRequest.setStatus(ReturnStatus.WAREHOUSE_RECEIVED);
@@ -114,7 +114,7 @@ public class ReturnService {
         }
 
         Map<UUID, OrderItem> orderItems = orderItemRepository
-                .findByOrderIdWithVariant(order.getId())
+                .findByOrderId(order.getId())
                 .stream()
                 .collect(Collectors.toMap(OrderItem::getId, item -> item));
 
@@ -272,11 +272,22 @@ public class ReturnService {
     }
 
     private ReturnDetailResponse toDetail(ReturnRequest r) {
-        List<ReturnItemResponse> items = returnRequestItemRepository
-                .findByReturnRequestIdWithVariant(r.getId())
-                .stream()
-                .map(this::toItemResponse)
+        List<ReturnRequestItem> returnItems = returnRequestItemRepository.findByReturnRequestId(r.getId());
+
+        List<UUID> variantIds = returnItems.stream()
+                .map(rri -> rri.getOrderItem().getProductVariantId())
+                .distinct()
                 .toList();
+        Map<UUID, ProductVariantResponse> variants = productClient.getVariantsByIds(variantIds).stream()
+                .collect(Collectors.toMap(ProductVariantResponse::getVariantId, Function.identity()));
+
+        List<ReturnItemResponse> items = returnItems.stream()
+                .map(rri -> toItemResponse(rri, variants))
+                .toList();
+
+        String warehouseName = r.getWarehouseId() == null
+                ? null
+                : productClient.getWarehouseById(r.getWarehouseId()).getName();
 
         return new ReturnDetailResponse(
                 r.getId(),
@@ -294,7 +305,7 @@ public class ReturnService {
                 r.getRefundAmount(),
                 r.getCarrier() == null ? null : r.getCarrier().getName(),
                 r.getTrackingNumber(),
-                r.getWarehouse() == null ? null : r.getWarehouse().getName(),
+                warehouseName,
                 r.getCreatedAt(),
                 r.getReceivedAt(),
                 r.getRestockedAt(),
@@ -302,17 +313,17 @@ public class ReturnService {
         );
     }
 
-    private ReturnItemResponse toItemResponse(ReturnRequestItem rri) {
+    private ReturnItemResponse toItemResponse(ReturnRequestItem rri, Map<UUID, ProductVariantResponse> variants) {
         OrderItem orderItem = rri.getOrderItem();
-        ProductVariant variant = orderItem.getProductVariant();
+        ProductVariantResponse variant = variants.get(orderItem.getProductVariantId());
         BigDecimal lineTotal = orderItem.getUnitPrice().multiply(BigDecimal.valueOf(rri.getQuantity()));
 
         return new ReturnItemResponse(
                 rri.getId(),
                 orderItem.getId(),
-                variant.getId(),
-                variant.getProduct().getName(),
-                variant.getName(),
+                orderItem.getProductVariantId(),
+                variant != null ? variant.getProductName() : null,
+                variant != null ? variant.getVariantName() : null,
                 orderItem.getUnitPrice(),
                 rri.getQuantity(),
                 lineTotal

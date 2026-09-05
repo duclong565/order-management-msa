@@ -10,6 +10,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Entity
 @Table(name = "order_items")
@@ -21,9 +22,9 @@ public class OrderItem extends BaseEntity {
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "product_variant_id", nullable = false)
-    private ProductVariant productVariant;
+    // productVariant thuộc product-service - chỉ lưu ID, lấy chi tiết qua ProductClient
+    @Column(name = "product_variant_id", nullable = false)
+    private UUID productVariantId;
 
     @Column(nullable = false)
     private int quantity;

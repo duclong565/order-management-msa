@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -73,6 +74,17 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
         group by pv.id, p.id, c.id
         """, nativeQuery = true)
     Optional<ProductVariantRowProjection> findRowById(@Param("variantId") UUID variantId);
+
+    @Query(value = ROW_SELECT + """
+        from product_variants pv
+        join products p on p.id = pv.product_id
+        left join categories c on c.id = p.category_id
+        left join inventories i on i.product_variant_id = pv.id and i.deleted = false
+        where pv.id in (:variantIds)
+          and pv.deleted = false
+        group by pv.id, p.id, c.id
+        """, nativeQuery = true)
+    List<ProductVariantRowProjection> findRowsByIds(@Param("variantIds") List<UUID> variantIds);
 
     @QueryHints(@QueryHint(name = "org.hibernate.fetchSize", value = "500"))
     @Query(value = ROW_SELECT + ROW_FROM + " order by p.name, pv.name", nativeQuery = true)

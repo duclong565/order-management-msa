@@ -1,18 +1,19 @@
 package com.example.order.service;
 
+import com.example.order.client.DiscountResponse;
+import com.example.order.client.ProductClient;
+import com.example.order.client.ProductVariantResponse;
 import com.example.order.common.ErrorCode;
 import com.example.order.common.StockStatus;
 import com.example.order.dto.CartItemResponse;
-import com.example.order.dto.CartItemRow;
 import com.example.order.dto.CartResponse;
 import com.example.order.dto.OrderSummaryResponse;
-import com.example.order.entity.*;
+import com.example.order.entity.Cart;
+import com.example.order.entity.CartItem;
 import com.example.order.exception.ApplicationException;
 import com.example.order.pricing.PricingCalculator;
 import com.example.order.repository.CartItemRepository;
 import com.example.order.repository.CartRepository;
-import com.example.order.repository.DiscountRepository;
-import com.example.order.repository.InventoryRepository;
 import com.example.order.security.CurrentUserProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,15 +21,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class CartService {
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
-    private final InventoryRepository inventoryRepository;
-    private final DiscountRepository discountRepository;
+    private final ProductClient productClient;
     private final PricingCalculator pricingCalculator;
     private final CurrentUserProvider currentUserProvider;
 
@@ -37,26 +40,38 @@ public class CartService {
                 new ApplicationException(ErrorCode.CART_NOT_FOUND));
     }
 
-    private CartItemResponse toItemResponse(CartItemRow row) {
-        StockStatus status = pricingCalculator.resolveStockStatus(row.getStockQuantity(), row.getQuantity());
-        Integer available = status == StockStatus.LIMITED_STOCK ? (int) row.getStockQuantity() : null;
+    // gom hết ID cần thiết, gọi product-service đúng 1 lần, dựng Map để tra cứu O(1)
+    // - không gọi ProductClient bên trong vòng lặp.
+    private Map<UUID, ProductVariantResponse> fetchVariantsByCartItems(List<CartItem> cartItems) {
+        List<UUID> variantIds = cartItems.stream().map(CartItem::getProductVariantId).distinct().toList();
+        return productClient.getVariantsByIds(variantIds).stream()
+                .collect(Collectors.toMap(ProductVariantResponse::getVariantId, Function.identity()));
+    }
+
+    private CartItemResponse toItemResponse(CartItem cartItem, Map<UUID, ProductVariantResponse> variants) {
+        ProductVariantResponse variant = variants.get(cartItem.getProductVariantId());
+        long stockQuantity = variant != null ? variant.getTotalQuantity() : 0;
+        StockStatus status = pricingCalculator.resolveStockStatus(stockQuantity, cartItem.getQuantity());
+        Integer available = status == StockStatus.LIMITED_STOCK ? (int) stockQuantity : null;
 
         return new CartItemResponse(
-                row.getCartItemId(),
-                row.getProductVariantId(),
-                row.getProductName(),
-                row.getVariantName(),
-                row.getUnitPrice(),
-                row.getQuantity(),
+                cartItem.getId(),
+                cartItem.getProductVariantId(),
+                variant != null ? variant.getProductName() : null,
+                variant != null ? variant.getVariantName() : null,
+                variant != null ? variant.getPrice() : BigDecimal.ZERO,
+                cartItem.getQuantity(),
                 status,
                 available
         );
     }
 
     private CartResponse buildCartResponse(Cart cart) {
-        List<CartItemResponse> items = cartItemRepository.findCartRows(cart.getId())
-                .stream()
-                .map(this::toItemResponse)
+        List<CartItem> cartItems = cartItemRepository.findByCartId(cart.getId());
+        Map<UUID, ProductVariantResponse> variants = fetchVariantsByCartItems(cartItems);
+
+        List<CartItemResponse> items = cartItems.stream()
+                .map(item -> toItemResponse(item, variants))
                 .toList();
 
         return new CartResponse(cart.getId(), cart.getUser().getId(), items);
@@ -76,8 +91,7 @@ public class CartService {
         CartItem cartItem = cartItemRepository.findByIdAndCartUserId(cartItemId, userId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.CART_ITEM_NOT_FOUND));
 
-        UUID variantId = cartItem.getProductVariant().getId();
-        long availableStock = inventoryRepository.totalStock(variantId);
+        long availableStock = productClient.getStock(cartItem.getProductVariantId());
 
         if (availableStock < quantity) {
             throw new ApplicationException(ErrorCode.INSUFFICIENT_STOCK,
@@ -100,13 +114,17 @@ public class CartService {
     public OrderSummaryResponse getOrderSummary(UUID discountId) {
         UUID userId = currentUserProvider.getUserId();
         Cart cart = findCartByUserId(userId);
-        List<CartItem> cartItems = cartItemRepository.findByCartIdWithVariant(cart.getId());
-        BigDecimal subtotal = pricingCalculator.calculateSubtotal(cartItems);
+        List<CartItem> cartItems = cartItemRepository.findByCartId(cart.getId());
+        Map<UUID, ProductVariantResponse> variants = fetchVariantsByCartItems(cartItems);
 
-        Discount discount = null;
+        BigDecimal subtotal = cartItems.stream()
+                .map(item -> variants.get(item.getProductVariantId()).getPrice()
+                        .multiply(BigDecimal.valueOf(item.getQuantity())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        DiscountResponse discount = null;
         if (discountId != null) {
-            discount = discountRepository.findById(discountId)
-                    .orElseThrow(() -> new ApplicationException(ErrorCode.DISCOUNT_NOT_FOUND));
+            discount = productClient.getDiscountById(discountId);
             pricingCalculator.validateDiscountActive(discount);
         }
 
