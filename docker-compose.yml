@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: msa-postgres
+    environment:
+      POSTGRES_USER: msa
+      POSTGRES_PASSWORD: msa_dev_password
+      POSTGRES_DB: auth_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./infra/postgres-init:/docker-entrypoint-initdb.d
+      - msa-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  msa-postgres-data:
