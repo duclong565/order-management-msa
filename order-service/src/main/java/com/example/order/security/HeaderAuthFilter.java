@@ -1,11 +1,10 @@
-package com.example.auth.security;
+package com.example.order.security;
 
-import com.example.auth.common.UserRole;
+import com.example.order.common.UserRole;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.jspecify.annotations.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -19,8 +18,8 @@ public class HeaderAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
-                                    @NonNull HttpServletResponse response,
-                                    @NonNull FilterChain filterChain) throws ServletException, IOException {
+                                     HttpServletResponse response,
+                                     FilterChain filterChain) throws ServletException, IOException {
         String userId = request.getHeader("X-User-Id");
         String role = request.getHeader("X-User-Role");
 
