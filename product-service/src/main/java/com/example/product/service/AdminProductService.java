@@ -8,12 +8,18 @@ import com.example.product.common.ErrorCode;
 import com.example.product.common.StockStatus;
 import com.example.product.dto.AdminProductListItemResponse;
 import com.example.product.dto.CategoryResponse;
+import com.example.product.dto.CreateCategoryRequest;
+import com.example.product.dto.CreateProductRequest;
+import com.example.product.dto.CreateProductVariantRequest;
 import com.example.product.dto.ProductExportRow;
+import com.example.product.dto.ProductResponse;
+import com.example.product.dto.ProductVariantSummaryResponse;
 import com.example.product.dto.StockAdjustmentRequest;
 import com.example.product.dto.StockAdjustmentResponse;
 import com.example.product.entity.Category;
 import com.example.product.entity.Inventory;
 import com.example.product.entity.InventoryTransaction;
+import com.example.product.entity.Product;
 import com.example.product.entity.ProductVariant;
 import com.example.product.entity.Warehouse;
 import com.example.product.exception.ApplicationException;
@@ -21,6 +27,7 @@ import com.example.product.pricing.PricingCalculator;
 import com.example.product.repository.CategoryRepository;
 import com.example.product.repository.InventoryRepository;
 import com.example.product.repository.InventoryTransactionRepository;
+import com.example.product.repository.ProductRepository;
 import com.example.product.repository.WarehouseRepository;
 import com.example.product.repository.ProductVariantRepository;
 import com.example.product.repository.ProductVariantRowProjection;
@@ -43,6 +50,7 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class AdminProductService {
 
+    private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final CategoryRepository categoryRepository;
     private final InventoryRepository inventoryRepository;
@@ -71,6 +79,60 @@ public class AdminProductService {
                 .sorted(Comparator.comparing(Category::getName))
                 .map(c -> new CategoryResponse(c.getId(), c.getName(), c.getSlug(), c.getDescription()))
                 .toList();
+    }
+
+    @Transactional
+    public CategoryResponse createCategory(CreateCategoryRequest request) {
+        if (categoryRepository.existsBySlug(request.getSlug())) {
+            throw new ApplicationException(ErrorCode.INVALID_REQUEST, "Slug already exists: " + request.getSlug());
+        }
+
+        Category category = new Category();
+        category.setName(request.getName());
+        category.setSlug(request.getSlug());
+        category.setDescription(request.getDescription());
+        Category saved = categoryRepository.save(category);
+
+        return new CategoryResponse(saved.getId(), saved.getName(), saved.getSlug(), saved.getDescription());
+    }
+
+    @Transactional
+    public ProductResponse createProduct(CreateProductRequest request) {
+        Category category = null;
+        if (request.getCategoryId() != null) {
+            category = categoryRepository.findById(request.getCategoryId())
+                    .orElseThrow(() -> new ApplicationException(ErrorCode.INVALID_REQUEST, "Category not found"));
+        }
+
+        Product product = new Product();
+        product.setName(request.getName());
+        product.setDescription(request.getDescription());
+        product.setImageUrl(request.getImageUrl());
+        product.setCategory(category);
+        Product saved = productRepository.save(product);
+
+        return new ProductResponse(saved.getId(), saved.getName(), saved.getDescription(),
+                saved.getImageUrl(), category != null ? category.getId() : null);
+    }
+
+    @Transactional
+    public ProductVariantSummaryResponse createVariant(UUID productId, CreateProductVariantRequest request) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ApplicationException(ErrorCode.INVALID_REQUEST, "Product not found"));
+
+        if (request.getSku() != null && productVariantRepository.existsBySku(request.getSku())) {
+            throw new ApplicationException(ErrorCode.INVALID_REQUEST, "SKU already exists: " + request.getSku());
+        }
+
+        ProductVariant variant = new ProductVariant();
+        variant.setProduct(product);
+        variant.setName(request.getName());
+        variant.setSku(request.getSku());
+        variant.setPrice(request.getPrice());
+        ProductVariant saved = productVariantRepository.save(variant);
+
+        return new ProductVariantSummaryResponse(saved.getId(), product.getId(), saved.getName(),
+                saved.getSku(), saved.getPrice());
     }
 
     private AdminProductListItemResponse toListItem(ProductVariantRowProjection row) {

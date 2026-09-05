@@ -4,6 +4,11 @@ import com.example.product.common.BaseResponse;
 import com.example.product.common.StockStatus;
 import com.example.product.dto.AdminProductListItemResponse;
 import com.example.product.dto.CategoryResponse;
+import com.example.product.dto.CreateCategoryRequest;
+import com.example.product.dto.CreateProductRequest;
+import com.example.product.dto.CreateProductVariantRequest;
+import com.example.product.dto.ProductResponse;
+import com.example.product.dto.ProductVariantSummaryResponse;
 import com.example.product.dto.StockAdjustmentRequest;
 import com.example.product.dto.StockAdjustmentResponse;
 import com.example.product.service.AdminProductService;
@@ -13,6 +18,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -60,6 +66,31 @@ public class AdminProductController {
     @GetMapping("/categories")
     public ResponseEntity<BaseResponse<List<CategoryResponse>>> getCategories() {
         return ResponseEntity.ok(BaseResponse.success(adminProductService.getCategories()));
+    }
+
+    @PostMapping("/categories")
+    public ResponseEntity<BaseResponse<CategoryResponse>> createCategory(
+            @Valid @RequestBody CreateCategoryRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(BaseResponse.success(adminProductService.createCategory(request)));
+    }
+
+    @PostMapping
+    public ResponseEntity<BaseResponse<ProductResponse>> createProduct(
+            @Valid @RequestBody CreateProductRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(BaseResponse.success(adminProductService.createProduct(request)));
+    }
+
+    @PostMapping("/{productId}/variants")
+    public ResponseEntity<BaseResponse<ProductVariantSummaryResponse>> createVariant(
+            @PathVariable UUID productId,
+            @Valid @RequestBody CreateProductVariantRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(BaseResponse.success(adminProductService.createVariant(productId, request)));
     }
 
     @PostMapping("/{variantId}/stock-adjustments")

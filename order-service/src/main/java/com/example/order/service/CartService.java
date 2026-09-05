@@ -40,6 +40,14 @@ public class CartService {
                 new ApplicationException(ErrorCode.CART_NOT_FOUND));
     }
 
+    private Cart findOrCreateCartByUserId(UUID userId) {
+        return cartRepository.findByUserId(userId).orElseGet(() -> {
+            Cart cart = new Cart();
+            cart.setUserId(userId);
+            return cartRepository.save(cart);
+        });
+    }
+
     // gom hết ID cần thiết, gọi product-service đúng 1 lần, dựng Map để tra cứu O(1)
     // - không gọi ProductClient bên trong vòng lặp.
     private Map<UUID, ProductVariantResponse> fetchVariantsByCartItems(List<CartItem> cartItems) {
@@ -81,6 +89,40 @@ public class CartService {
     public CartResponse getMyCart() {
         UUID userId = currentUserProvider.getUserId();
         Cart cart = findCartByUserId(userId);
+        return buildCartResponse(cart);
+    }
+
+    @Transactional
+    public CartResponse addItem(UUID productVariantId, int quantity) {
+        UUID userId = currentUserProvider.getUserId();
+        Cart cart = findOrCreateCartByUserId(userId);
+
+        List<ProductVariantResponse> variants = productClient.getVariantsByIds(List.of(productVariantId));
+        if (variants.isEmpty()) {
+            throw new ApplicationException(ErrorCode.PRODUCT_VARIANT_NOT_FOUND);
+        }
+        ProductVariantResponse variant = variants.get(0);
+
+        CartItem existing = cartItemRepository.findByCartIdAndProductVariantId(cart.getId(), productVariantId)
+                .orElse(null);
+        int wantedQuantity = quantity + (existing != null ? existing.getQuantity() : 0);
+
+        if (variant.getTotalQuantity() < wantedQuantity) {
+            throw new ApplicationException(ErrorCode.INSUFFICIENT_STOCK,
+                    "Insufficient stock. Available quantity: " + variant.getTotalQuantity());
+        }
+
+        if (existing != null) {
+            existing.setQuantity(wantedQuantity);
+            cartItemRepository.save(existing);
+        } else {
+            CartItem item = new CartItem();
+            item.setCart(cart);
+            item.setProductVariantId(productVariantId);
+            item.setQuantity(quantity);
+            cartItemRepository.save(item);
+        }
+
         return buildCartResponse(cart);
     }
 

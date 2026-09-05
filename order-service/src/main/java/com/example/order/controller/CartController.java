@@ -1,12 +1,14 @@
 package com.example.order.controller;
 
 import com.example.order.common.BaseResponse;
+import com.example.order.dto.AddCartItemRequest;
 import com.example.order.dto.CartResponse;
 import com.example.order.dto.OrderSummaryResponse;
 import com.example.order.dto.UpdateCartItemRequest;
 import com.example.order.service.CartService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +23,12 @@ public class CartController {
     @GetMapping("/me")
     public ResponseEntity<BaseResponse<CartResponse>> getMyCart() {
         return ResponseEntity.ok(BaseResponse.success(cartService.getMyCart()));
+    }
+
+    @PostMapping("/items")
+    public ResponseEntity<BaseResponse<CartResponse>> addItem(@Valid @RequestBody AddCartItemRequest request) {
+        CartResponse response = cartService.addItem(request.getProductVariantId(), request.getQuantity());
+        return ResponseEntity.status(HttpStatus.CREATED).body(BaseResponse.success(response));
     }
 
     @PatchMapping("/items/{cartItemId}")
