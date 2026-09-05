@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
@@ -17,11 +18,16 @@ import reactor.core.publisher.Mono;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class JwtAuthFilter implements GlobalFilter, Ordered {
 
-    private static final List<String> PUBLIC_PATHS = List.of("/auth/login");
+    // method+path phải khớp CHÍNH XÁC endpoint permitAll bên service đích -
+    // không dùng startsWith, tránh vô tình public luôn cả nhánh con protected.
+    private static final Map<HttpMethod, List<String>> PUBLIC_ROUTES = Map.of(
+            HttpMethod.POST, List.of("/auth/login", "/users")
+    );
 
     private final SecretKey key;
 
@@ -31,8 +37,9 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        HttpMethod method = exchange.getRequest().getMethod();
         String path = exchange.getRequest().getURI().getPath();
-        if (isPublic(path)) {
+        if (isPublic(method, path)) {
             return chain.filter(exchange);
         }
 
@@ -61,8 +68,8 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         }
     }
 
-    private boolean isPublic(String path) {
-        return PUBLIC_PATHS.stream().anyMatch(path::startsWith);
+    private boolean isPublic(HttpMethod method, String path) {
+        return PUBLIC_ROUTES.getOrDefault(method, List.of()).contains(path);
     }
 
     private Mono<Void> unauthorized(ServerWebExchange exchange) {

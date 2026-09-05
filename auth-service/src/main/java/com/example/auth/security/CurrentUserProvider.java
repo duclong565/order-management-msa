@@ -29,6 +29,6 @@ public class CurrentUserProvider {
     }
 
     public UUID getUserId() {
-        return getPrincipal().user().getId();
+        return getPrincipal().userId();
     }
 }
