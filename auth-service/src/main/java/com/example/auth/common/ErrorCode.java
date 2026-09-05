@@ -11,6 +11,7 @@ public enum ErrorCode {
 
     // 401 / 403
     UNAUTHORIZED(4011, HttpStatus.UNAUTHORIZED, "Authentication required"),
+    INVALID_CREDENTIALS(4012, HttpStatus.UNAUTHORIZED, "Invalid username or password"),
     ACCESS_DENIED(4031, HttpStatus.FORBIDDEN, "Access denied"),
 
     // 404 - khong tim thay

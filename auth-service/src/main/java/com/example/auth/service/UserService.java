@@ -2,12 +2,15 @@ package com.example.auth.service;
 
 import com.example.auth.dto.ChangePasswordRequest;
 import com.example.auth.dto.CreateUserRequest;
+import com.example.auth.dto.LoginRequest;
+import com.example.auth.dto.LoginResponse;
 import com.example.auth.dto.UserResponse;
 import com.example.auth.entity.User;
 import com.example.auth.common.ErrorCode;
 import com.example.auth.exception.ApplicationException;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.security.CurrentUserProvider;
+import com.example.auth.security.JwtProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,6 +25,19 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final CurrentUserProvider currentUserProvider;
+    private final JwtProvider jwtProvider;
+
+    public LoginResponse login(LoginRequest request) {
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new ApplicationException(ErrorCode.INVALID_CREDENTIALS));
+
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new ApplicationException(ErrorCode.INVALID_CREDENTIALS);
+        }
+
+        String token = jwtProvider.generateToken(user);
+        return new LoginResponse(token, toResponse(user));
+    }
 
     public UserResponse createUser(CreateUserRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
