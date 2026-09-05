@@ -24,7 +24,7 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
     @Query(value = "select nextval('return_code_seq')", nativeQuery = true)
     long nextReturnCodeSequence();
 
-    @EntityGraph(attributePaths = {"user", "order"})
+    @EntityGraph(attributePaths = {"order"})
     @Query("""
         select r
         from ReturnRequest r
@@ -37,7 +37,7 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
                                @Param("search") String search,
                                Pageable pageable);
 
-    @EntityGraph(attributePaths = {"user", "order", "carrier", "warehouse"})
+    @EntityGraph(attributePaths = {"order", "carrier"})
     @Query("""
         select r
         from ReturnRequest r
@@ -115,7 +115,6 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
     @Query("""
         select r
         from ReturnRequest r
-        join fetch r.user
         join fetch r.order
         where r.deleted = false
           and (:status is null or r.status = :status)

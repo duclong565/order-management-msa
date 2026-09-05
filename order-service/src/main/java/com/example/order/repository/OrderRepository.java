@@ -23,27 +23,27 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Optional<Order> findByIdAndUserId(UUID id, UUID userId);
 
-    @EntityGraph(attributePaths = {"user", "carrier", "paymentMethod", "recipientAddress", "discount"})
+    @EntityGraph(attributePaths = {"carrier", "paymentMethod"})
     @Query("select o from Order o where o.id = :orderId")
     Optional<Order> findDetailById(@Param("orderId") UUID orderId);
 
-    @EntityGraph(attributePaths = {"user", "carrier", "paymentMethod", "recipientAddress", "discount"})
-    @Query("select o from Order o where o.id = :orderId and o.user.id = :userId")
+    @EntityGraph(attributePaths = {"carrier", "paymentMethod"})
+    @Query("select o from Order o where o.id = :orderId and o.userId = :userId")
     Optional<Order> findDetailByIdAndUserId(@Param("orderId") UUID orderId, @Param("userId") UUID userId);
 
     @Query(value = "select nextval('order_code_seq')", nativeQuery = true)
     long nextOrderCodeSequence();
 
-    @EntityGraph(attributePaths = {"user", "carrier"})
+    // Không còn lọc theo tên khách hàng bằng SQL được nữa - User nằm ở DB của
+    // auth-service, không JOIN xuyên DB được. Chỉ còn lọc theo orderCode.
+    @EntityGraph(attributePaths = {"carrier"})
     @Query("""
         select o
         from Order o
         where o.deleted = false
           and (:status is null or o.status = :status)
           and (cast(:search as String) is null
-               or lower(o.orderCode) like lower(concat('%', cast(:search as String), '%'))
-               or lower(coalesce(o.user.fullName, o.user.username))
-                   like lower(concat('%', cast(:search as String), '%')))
+               or lower(o.orderCode) like lower(concat('%', cast(:search as String), '%')))
         """)
     Page<Order> searchForAdmin(@Param("status") OrderStatus status,
                                @Param("search") String search,

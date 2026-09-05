@@ -1,10 +1,10 @@
-package com.example.auth.dto;
+package com.example.order.client;
 
+import com.example.order.common.UserRole;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import com.example.auth.common.UserRole;
 
 import java.time.Instant;
 import java.util.UUID;

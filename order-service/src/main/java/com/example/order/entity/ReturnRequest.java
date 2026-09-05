@@ -31,9 +31,9 @@ public class ReturnRequest extends BaseEntity {
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    // user thuộc auth-service - chỉ lưu ID, lấy chi tiết qua UserClient
+    @Column(name = "user_id", nullable = false)
+    private UUID userId;
 
     @Column(nullable = false, length = 30)
     @Enumerated(EnumType.STRING)

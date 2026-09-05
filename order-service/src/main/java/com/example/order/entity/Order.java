@@ -26,9 +26,9 @@ public class Order extends BaseEntity {
     @Column(name = "order_code", nullable = false, unique = true, length = 20)
     private String orderCode;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    // user thuộc auth-service - chỉ lưu ID, lấy chi tiết qua UserClient
+    @Column(name = "user_id", nullable = false)
+    private UUID userId;
 
     @Column(nullable = false, length = 20)
     @Enumerated(EnumType.STRING) //annotation cho JPA lưu kiểu dữ liệu enum dạng string không phải int, default là ordinal (0,1,2,...)
@@ -71,16 +71,15 @@ public class Order extends BaseEntity {
     @Column(name = "estimated_delivery_date")
     private Instant estimatedDeliveryDate;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "sender_address_id")
-    private Address senderAddress;
+    // address thuộc auth-service - chỉ lưu ID, lấy chi tiết qua UserClient
+    @Column(name = "sender_address_id")
+    private UUID senderAddressId;
 
     @Column(name = "sender_address", length = 500)
     private String senderAddressSnapshot;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "recipient_address_id")
-    private Address recipientAddress;
+    @Column(name = "recipient_address_id")
+    private UUID recipientAddressId;
 
     @Column(name = "recipient_address", length = 500)
     private String recipientAddressSnapshot;

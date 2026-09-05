@@ -14,15 +14,17 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Entity
 @Table(name = "tracking_logs")
 @Getter
 @Setter
 public class TrackingLog extends BaseEntity {
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
-    private User user;
+
+    // user thuộc auth-service - chỉ lưu ID, lấy chi tiết qua UserClient
+    @Column(name = "user_id")
+    private UUID userId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false)

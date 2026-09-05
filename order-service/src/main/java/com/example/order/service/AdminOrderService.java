@@ -1,5 +1,7 @@
 package com.example.order.service;
 
+import com.example.order.client.UserClient;
+import com.example.order.client.UserResponse;
 import com.example.order.common.OrderStatus;
 import com.example.order.dto.AdminOrderListItemResponse;
 import com.example.order.dto.BulkConfirmRequest;
@@ -9,7 +11,6 @@ import com.example.order.dto.OrderOperationsSummaryResponse;
 import com.example.order.entity.Carrier;
 import com.example.order.entity.Order;
 import com.example.order.entity.TrackingLog;
-import com.example.order.entity.User;
 import com.example.order.repository.CarrierShareProjection;
 import com.example.order.repository.OrderRepository;
 import com.example.order.repository.OrderSummaryProjection;
@@ -29,21 +30,30 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class AdminOrderService {
     private final OrderRepository orderRepository;
     private final TrackingLogRepository trackingLogRepository;
+    private final UserClient userClient;
     private final CurrentUserProvider currentUserProvider;
 
     @Transactional(readOnly = true)
     public Page<AdminOrderListItemResponse> getOrders(OrderStatus status, String search, Pageable pageable) {
-        return orderRepository
-                .searchForAdmin(status, normalizeSearch(search), pageable)
-                .map(this::toListItem);
+        Page<Order> page = orderRepository.searchForAdmin(status, normalizeSearch(search), pageable);
+
+        // gom hết userId trong page, gọi auth-service đúng 1 lần thay vì mỗi row 1 lần.
+        List<UUID> userIds = page.getContent().stream().map(Order::getUserId).distinct().toList();
+        Map<UUID, UserResponse> customers = userClient.getUsersByIds(userIds).stream()
+                .collect(Collectors.toMap(UserResponse::getId, Function.identity()));
+
+        return page.map(order -> toListItem(order, customers));
     }
 
     @Transactional(readOnly = true)
@@ -110,7 +120,7 @@ public class AdminOrderService {
         List<UUID> confirmed = new ArrayList<>();
         List<BulkConfirmResponse.SkippedOrder> skipped = new ArrayList<>();
 
-        User actor = currentUserProvider.getPrincipal().user();
+        UUID actorId = currentUserProvider.getUserId();
 
         for (Order order : orders) {
             foundIds.add(order.getId());
@@ -126,7 +136,7 @@ public class AdminOrderService {
 
             TrackingLog log = new TrackingLog();
             log.setOrder(order);
-            log.setUser(actor);
+            log.setUserId(actorId);
             log.setStatus(OrderStatus.CONFIRMED);
             log.setTitle("Order Confirmed");
             log.setNote("Confirmed in bulk from operations console.");
@@ -144,14 +154,14 @@ public class AdminOrderService {
         return new BulkConfirmResponse(requestedIds.size(), confirmed.size(), confirmed, skipped);
     }
 
-    private AdminOrderListItemResponse toListItem(Order order) {
-        User customer = order.getUser();
+    private AdminOrderListItemResponse toListItem(Order order, Map<UUID, UserResponse> customers) {
+        UserResponse customer = customers.get(order.getUserId());
         Carrier carrier = order.getCarrier();
 
         return new AdminOrderListItemResponse(
                 order.getId(),
                 order.getOrderCode(),
-                customer.getId(),
+                order.getUserId(),
                 displayName(customer),
                 order.getCreatedAt(),
                 order.getTotalPrice(),
@@ -161,7 +171,10 @@ public class AdminOrderService {
         );
     }
 
-    private String displayName(User user) {
+    private String displayName(UserResponse user) {
+        if (user == null) {
+            return null;
+        }
         return user.getFullName() != null && !user.getFullName().isBlank()
                 ? user.getFullName()
                 : user.getUsername();

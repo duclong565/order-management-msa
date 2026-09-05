@@ -12,6 +12,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/users")
@@ -33,6 +34,17 @@ public class UserController {
     public ResponseEntity<BaseResponse<List<UserResponse>>> getAllUsers() {
         List<UserResponse> userResponseList = userService.getAllUsers();
         return ResponseEntity.status(HttpStatus.OK).body(BaseResponse.success(userResponseList));
+    }
+
+    // dùng bởi service khác (order-service...) qua UserClient - không phải endpoint cho end-user
+    @GetMapping("/{id}")
+    public ResponseEntity<BaseResponse<UserResponse>> getById(@PathVariable UUID id) {
+        return ResponseEntity.ok(BaseResponse.success(userService.getById(id)));
+    }
+
+    @PostMapping("/get-by-ids")
+    public ResponseEntity<BaseResponse<List<UserResponse>>> getByIds(@RequestBody List<UUID> ids) {
+        return ResponseEntity.ok(BaseResponse.success(userService.getByIds(ids)));
     }
 
     @PatchMapping("/me/password")

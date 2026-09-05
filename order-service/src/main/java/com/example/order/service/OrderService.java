@@ -1,18 +1,22 @@
 package com.example.order.service;
 
+import com.example.order.client.AddressResponse;
 import com.example.order.client.DiscountResponse;
 import com.example.order.client.ProductClient;
 import com.example.order.client.ProductVariantResponse;
+import com.example.order.client.UserClient;
+import com.example.order.client.UserResponse;
 import com.example.order.dto.*;
 import com.example.order.entity.*;
+import com.example.order.common.ErrorCode;
 import com.example.order.common.OrderStatus;
 import com.example.order.common.PaymentStatus;
 import com.example.order.common.UserRole;
-import com.example.order.common.ErrorCode;
 import com.example.order.exception.ApplicationException;
 import com.example.order.pricing.PricingCalculator;
 import com.example.order.repository.*;
 import com.example.order.security.CurrentUserProvider;
+import com.example.order.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +36,7 @@ public class OrderService {
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
     private final ProductClient productClient;
-    private final AddressRepository addressRepository;
+    private final UserClient userClient;
     private final PaymentMethodRepository paymentMethodRepository;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -54,6 +58,17 @@ public class OrderService {
                 .collect(Collectors.toMap(ProductVariantResponse::getVariantId, Function.identity()));
     }
 
+    // tương tự - gom userId của mọi tracking log trong đơn, gọi auth-service đúng 1 lần.
+    private Map<UUID, UserResponse> fetchUsersByTrackingLogs(List<TrackingLog> logs) {
+        List<UUID> userIds = logs.stream()
+                .map(TrackingLog::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        return userClient.getUsersByIds(userIds).stream()
+                .collect(Collectors.toMap(UserResponse::getId, Function.identity()));
+    }
+
     private void decreaseStock(List<CartItem> items) {
         for (CartItem item : items) {
             productClient.decreaseStock(item.getProductVariantId(), item.getQuantity());
@@ -73,6 +88,7 @@ public class OrderService {
                                      List<OrderItem> orderItems,
                                      List<TrackingLog> trackingLogs) {
         Map<UUID, ProductVariantResponse> variants = fetchVariantsByOrderItems(orderItems);
+        Map<UUID, UserResponse> actors = fetchUsersByTrackingLogs(trackingLogs);
 
         OrderResponse response = new OrderResponse();
 
@@ -90,7 +106,9 @@ public class OrderService {
         response.setTotalPrice(order.getTotalPrice());
 
         response.setRecipientAddress(order.getRecipientAddressSnapshot());
-        response.setRecipient(toRecipient(order.getRecipientAddress()));
+        response.setRecipient(order.getRecipientAddressId() == null
+                ? null
+                : toRecipient(userClient.getAddressById(order.getRecipientAddressId())));
 
         PaymentMethod paymentMethod = order.getPaymentMethod();
         response.setPaymentMethodName(paymentMethod != null ? paymentMethod.getName() : null);
@@ -101,7 +119,7 @@ public class OrderService {
         response.setCarrierName(carrier != null ? carrier.getName() : null);
         response.setCarrierDescription(carrier != null ? carrier.getDescription() : null);
 
-        response.setTimeline(trackingLogs.stream().map(this::toTrackingEvent).toList());
+        response.setTimeline(trackingLogs.stream().map(log -> toTrackingEvent(log, actors)).toList());
         response.setCurrentLocation(latestLocation(trackingLogs));
 
         response.setCreatedAt(order.getCreatedAt());
@@ -126,7 +144,7 @@ public class OrderService {
         );
     }
 
-    private RecipientAddressResponse toRecipient(Address address) {
+    private RecipientAddressResponse toRecipient(AddressResponse address) {
         if (address == null) {
             return null;
         }
@@ -142,8 +160,8 @@ public class OrderService {
         );
     }
 
-    private OrderTrackingEventResponse toTrackingEvent(TrackingLog log) {
-        User actor = log.getUser();
+    private OrderTrackingEventResponse toTrackingEvent(TrackingLog log, Map<UUID, UserResponse> actors) {
+        UserResponse actor = log.getUserId() != null ? actors.get(log.getUserId()) : null;
 
         return new OrderTrackingEventResponse(
                 log.getId(),
@@ -168,7 +186,7 @@ public class OrderService {
                 .orElse(null);
     }
 
-    private String formatAddress(Address address) {
+    private String formatAddress(AddressResponse address) {
         return Stream.of(address.getLine1(), address.getLine2(), address.getCity(),
                 address.getState(), address.getZipCode(), address.getCountry())
                 .filter(Objects::nonNull)
@@ -188,8 +206,10 @@ public class OrderService {
             throw new ApplicationException(ErrorCode.CART_EMPTY);
         }
 
-        Address address = addressRepository.findByIdAndUserId(request.getRecipientAddressId(), userId)
-                .orElseThrow(() -> new ApplicationException(ErrorCode.ADDRESS_NOT_FOUND));
+        AddressResponse address = userClient.getAddressById(request.getRecipientAddressId());
+        if (!Objects.equals(address.getUserId(), userId)) {
+            throw new ApplicationException(ErrorCode.ADDRESS_NOT_FOUND);
+        }
 
         PaymentMethod paymentMethod = paymentMethodRepository.findById(request.getPaymentMethodId())
                 .orElseThrow(() -> new ApplicationException(ErrorCode.PAYMENT_METHOD_NOT_FOUND));
@@ -214,7 +234,7 @@ public class OrderService {
 
         Order order = new Order();
         order.setOrderCode("ORD-" + orderRepository.nextOrderCodeSequence());
-        order.setUser(cart.getUser());
+        order.setUserId(cart.getUserId());
         order.setStatus(OrderStatus.PENDING);
         order.setPaymentStatus(PaymentStatus.UNPAID);
         order.setDiscountId(discount != null ? discount.getId() : null);
@@ -223,7 +243,7 @@ public class OrderService {
         order.setShippingFee(shippingFee);
         order.setTotalPrice(totalPrice);
         order.setPaymentMethod(paymentMethod);
-        order.setRecipientAddress(address);
+        order.setRecipientAddressId(address.getId());
         order.setRecipientAddressSnapshot(formatAddress(address));
         Order savedOrder = orderRepository.save(order);
 
@@ -238,7 +258,7 @@ public class OrderService {
 
         TrackingLog placedLog = new TrackingLog();
         placedLog.setOrder(savedOrder);
-        placedLog.setUser(cart.getUser());
+        placedLog.setUserId(cart.getUserId());
         placedLog.setStatus(OrderStatus.PENDING);
         placedLog.setTitle("Order Placed");
         placedLog.setNote("Digital order confirmed and payment verified.");
@@ -265,15 +285,15 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderResponse getOrderDetail(UUID orderId) {
-        User currentUser = currentUserProvider.getPrincipal().user();
+        CustomUserDetails currentUser = currentUserProvider.getPrincipal();
 
-        Order order = (currentUser.getRole() == UserRole.ADMIN
+        Order order = (currentUser.role() == UserRole.ADMIN
                 ? orderRepository.findDetailById(orderId)
-                : orderRepository.findDetailByIdAndUserId(orderId, currentUser.getId()))
+                : orderRepository.findDetailByIdAndUserId(orderId, currentUser.userId()))
                 .orElseThrow(() -> new ApplicationException(ErrorCode.ORDER_NOT_FOUND));
 
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        List<TrackingLog> trackingLogs = trackingLogRepository.findByOrderIdWithUser(orderId);
+        List<TrackingLog> trackingLogs = trackingLogRepository.findByOrderIdOrderByCreatedAtAsc(orderId);
 
         return toResponse(order, items, trackingLogs);
     }
@@ -293,11 +313,11 @@ public class OrderService {
 
         order.setStatus(target);
 
-        User actor = currentUserProvider.getPrincipal().user();
+        UUID actorId = currentUserProvider.getUserId();
 
         TrackingLog log = new TrackingLog();
         log.setOrder(order);
-        log.setUser(actor);
+        log.setUserId(actorId);
         log.setStatus(target);
         log.setTitle(request.getTitle());
         log.setLocation(request.getLocation());
@@ -307,7 +327,7 @@ public class OrderService {
         trackingLogRepository.save(log);
 
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        List<TrackingLog> trackingLogs = trackingLogRepository.findByOrderIdWithUser(orderId);
+        List<TrackingLog> trackingLogs = trackingLogRepository.findByOrderIdOrderByCreatedAtAsc(orderId);
         return toResponse(order, items, trackingLogs);
     }
 }

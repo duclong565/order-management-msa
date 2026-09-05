@@ -2,6 +2,8 @@ package com.example.order.service;
 
 import com.example.order.client.ProductClient;
 import com.example.order.client.ProductVariantResponse;
+import com.example.order.client.UserClient;
+import com.example.order.client.UserResponse;
 import com.example.order.client.WarehouseResponse;
 import com.example.order.common.ErrorCode;
 import com.example.order.common.OrderStatus;
@@ -62,14 +64,20 @@ public class ReturnService {
     private final ReturnRequestRepository returnRequestRepository;
     private final ReturnRequestItemRepository returnRequestItemRepository;
     private final ProductClient productClient;
+    private final UserClient userClient;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
 
     @Transactional(readOnly = true)
     public Page<ReturnListItemResponse> getReturns(ReturnStatus status, String search, Pageable pageable) {
-        return returnRequestRepository
-                .search(status, normalizeSearch(search), pageable)
-                .map(this::toListItem);
+        Page<ReturnRequest> page = returnRequestRepository.search(status, normalizeSearch(search), pageable);
+
+        // gom hết userId trong page, gọi auth-service đúng 1 lần thay vì mỗi row 1 lần.
+        List<UUID> userIds = page.getContent().stream().map(ReturnRequest::getUserId).distinct().toList();
+        Map<UUID, UserResponse> customers = userClient.getUsersByIds(userIds).stream()
+                .collect(Collectors.toMap(UserResponse::getId, Function.identity()));
+
+        return page.map(r -> toListItem(r, customers));
     }
 
     @Transactional(readOnly = true)
@@ -123,7 +131,7 @@ public class ReturnService {
         ReturnRequest returnRequest = new ReturnRequest();
         returnRequest.setReturnCode(nextReturnCode());
         returnRequest.setOrder(order);
-        returnRequest.setUser(order.getUser());
+        returnRequest.setUserId(order.getUserId());
         returnRequest.setReason(request.getReason());
         returnRequest.setReasonNote(request.getReasonNote());
         returnRequest.setOriginType(resolveOriginType(order));
@@ -229,11 +237,13 @@ public class ReturnService {
         }
     }
 
+    // export admin, tần suất thấp - chấp nhận gọi UserClient từng dòng thay vì batch.
     private void writeCsvRow(Writer writer, ReturnRequest r) {
         try {
+            String customerUsername = userClient.getUserById(r.getUserId()).getUsername();
             writer.write(String.join(",",
                     csv(r.getReturnCode()),
-                    csv(r.getUser().getUsername()),
+                    csv(customerUsername),
                     csv(r.getOrder().getOrderCode()),
                     csv(r.getReason().name()),
                     csv(r.getOriginType().name()),
@@ -256,11 +266,12 @@ public class ReturnService {
         return value;
     }
 
-    private ReturnListItemResponse toListItem(ReturnRequest r) {
+    private ReturnListItemResponse toListItem(ReturnRequest r, Map<UUID, UserResponse> customers) {
+        UserResponse customer = customers.get(r.getUserId());
         return new ReturnListItemResponse(
                 r.getId(),
                 r.getReturnCode(),
-                r.getUser().getUsername(),
+                customer != null ? customer.getUsername() : null,
                 r.getOrder().getId(),
                 r.getOrder().getOrderCode(),
                 r.getReason(),
@@ -288,13 +299,14 @@ public class ReturnService {
         String warehouseName = r.getWarehouseId() == null
                 ? null
                 : productClient.getWarehouseById(r.getWarehouseId()).getName();
+        UserResponse customer = userClient.getUserById(r.getUserId());
 
         return new ReturnDetailResponse(
                 r.getId(),
                 r.getReturnCode(),
-                r.getUser().getId(),
-                r.getUser().getUsername(),
-                r.getUser().getEmail(),
+                customer.getId(),
+                customer.getUsername(),
+                customer.getEmail(),
                 r.getOrder().getId(),
                 r.getOrder().getOrderCode(),
                 r.getReason(),

@@ -74,7 +74,7 @@ public class CartService {
                 .map(item -> toItemResponse(item, variants))
                 .toList();
 
-        return new CartResponse(cart.getId(), cart.getUser().getId(), items);
+        return new CartResponse(cart.getId(), cart.getUserId(), items);
     }
 
     @Transactional(readOnly = true)

@@ -2,11 +2,8 @@ package com.example.order.client;
 
 import com.example.order.common.ErrorCode;
 import com.example.order.exception.ApplicationException;
-import com.example.order.security.CurrentUserProvider;
-import com.example.order.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -20,8 +17,7 @@ public class ProductClientImpl implements ProductClient {
 
     private static final String PRODUCT_SERVICE_URL = "http://product-service";
 
-    private final WebClient.Builder webClientBuilder;
-    private final CurrentUserProvider currentUserProvider;
+    private final IdentityForwardingWebClient identityForwardingWebClient;
 
     @Override
     public List<ProductVariantResponse> getVariantsByIds(List<UUID> variantIds) {
@@ -106,22 +102,8 @@ public class ProductClientImpl implements ProductClient {
         return response.getData();
     }
 
-    // product-service tự bảo vệ mọi endpoint bằng HeaderAuthFilter, nên gọi service-to-service
-    // vẫn phải mang theo danh tính người dùng hiện tại - forward lại đúng header gateway đã gắn
-    // cho request gốc, lấy từ CurrentUserProvider (đã có sẵn nhờ HeaderAuthFilter của order-service).
     private WebClient client() {
-        WebClient base = webClientBuilder.build();
-        return currentUserProvider.findPrincipal()
-                .map(this::withIdentityHeaders)
-                .map(headers -> base.mutate().defaultHeaders(h -> h.addAll(headers)).build())
-                .orElse(base);
-    }
-
-    private HttpHeaders withIdentityHeaders(CustomUserDetails principal) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("X-User-Id", principal.userId().toString());
-        headers.add("X-User-Role", principal.role().name());
-        return headers;
+        return identityForwardingWebClient.client();
     }
 
     private record DecreaseStockRequestBody(int quantity) {

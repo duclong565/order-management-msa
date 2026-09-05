@@ -63,10 +63,23 @@ public class UserService {
         return userRepository.findAll().stream().map(this::toResponse).toList();
     }
 
+    @Transactional(readOnly = true)
+    public UserResponse getById(UUID id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
+        return toResponse(user);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserResponse> getByIds(List<UUID> ids) {
+        return userRepository.findAllById(ids).stream().map(this::toResponse).toList();
+    }
+
     private UserResponse toResponse(User user) {
         return new UserResponse(
                 user.getId(),
                 user.getUsername(),
+                user.getFullName(),
                 user.getEmail(),
                 user.getRole(),
                 user.getCreatedAt()
