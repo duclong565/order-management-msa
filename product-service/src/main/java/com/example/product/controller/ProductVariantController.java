@@ -34,10 +34,9 @@ public class ProductVariantController {
         return ResponseEntity.ok(BaseResponse.success(productVariantQueryService.getStock(variantId)));
     }
 
-    @PostMapping("/{variantId}/decrease-stock")
-    public ResponseEntity<BaseResponse<Void>> decreaseStock(@PathVariable UUID variantId,
-                                                             @Valid @RequestBody DecreaseStockRequest request) {
-        productVariantQueryService.decreaseStock(variantId, request.getQuantity());
+    @PostMapping("/decrease-stock")
+    public ResponseEntity<BaseResponse<Void>> decreaseStock(@Valid @RequestBody DecreaseStockRequest request) {
+        productVariantQueryService.decreaseStock(request.getItems());
         return ResponseEntity.ok(BaseResponse.success(null));
     }
 }

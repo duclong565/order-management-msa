@@ -55,15 +55,18 @@ public class ProductClientImpl implements ProductClient {
     }
 
     @Override
-    public void decreaseStock(UUID variantId, int quantity) {
+    public void decreaseStock(List<StockDecreaseLine> lines) {
+        if (lines.isEmpty()) {
+            return;
+        }
+
         client()
                 .post()
-                .uri(PRODUCT_SERVICE_URL + "/product-variants/{id}/decrease-stock", variantId)
-                .bodyValue(new DecreaseStockRequestBody(quantity))
+                .uri(PRODUCT_SERVICE_URL + "/product-variants/decrease-stock")
+                .bodyValue(new DecreaseStockRequestBody(lines))
                 .retrieve()
                 .onStatus(status -> status.value() == 409,
-                        clientResponse -> Mono.error(new ApplicationException(ErrorCode.INSUFFICIENT_STOCK,
-                                "Insufficient stock for variant: " + variantId)))
+                        clientResponse -> Mono.error(new ApplicationException(ErrorCode.INSUFFICIENT_STOCK)))
                 .bodyToMono(Void.class)
                 .block();
     }
@@ -106,6 +109,6 @@ public class ProductClientImpl implements ProductClient {
         return identityForwardingWebClient.client();
     }
 
-    private record DecreaseStockRequestBody(int quantity) {
+    private record DecreaseStockRequestBody(List<StockDecreaseLine> items) {
     }
 }

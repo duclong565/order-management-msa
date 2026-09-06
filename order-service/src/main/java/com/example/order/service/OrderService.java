@@ -4,6 +4,7 @@ import com.example.order.client.AddressResponse;
 import com.example.order.client.DiscountResponse;
 import com.example.order.client.ProductClient;
 import com.example.order.client.ProductVariantResponse;
+import com.example.order.client.StockDecreaseLine;
 import com.example.order.client.UserClient;
 import com.example.order.client.UserResponse;
 import com.example.order.dto.*;
@@ -69,10 +70,13 @@ public class OrderService {
                 .collect(Collectors.toMap(UserResponse::getId, Function.identity()));
     }
 
+    // 1 lời gọi cho cả đơn - product-service trừ trong 1 transaction của nó.
+    // Cart đã có unique (cart_id, product_variant_id) nên không có dòng trùng variant.
     private void decreaseStock(List<CartItem> items) {
-        for (CartItem item : items) {
-            productClient.decreaseStock(item.getProductVariantId(), item.getQuantity());
-        }
+        List<StockDecreaseLine> lines = items.stream()
+                .map(item -> new StockDecreaseLine(item.getProductVariantId(), item.getQuantity()))
+                .toList();
+        productClient.decreaseStock(lines);
     }
 
     private OrderItem toOrderItem(Order order, CartItem cartItem, Map<UUID, ProductVariantResponse> variants) {

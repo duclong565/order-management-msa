@@ -9,7 +9,9 @@ public interface ProductClient {
 
     long getStock(UUID variantId);
 
-    void decreaseStock(UUID variantId, int quantity);
+    // Trừ kho cho cả đơn trong 1 lời gọi: product-service xử lý trong 1 transaction,
+    // hoặc trừ hết hoặc không trừ gì. Gọi lặp từng dòng sẽ để lại trừ nửa vời.
+    void decreaseStock(List<StockDecreaseLine> lines);
 
     DiscountResponse getDiscountById(UUID discountId);
 
